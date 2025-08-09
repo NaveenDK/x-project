@@ -4,35 +4,42 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 
 const execAsync = promisify(exec)
-const log = pino({ transport: { target: 'pino-pretty' } })
+const logOptions = process.env.NODE_ENV === 'production' 
+  ? {} 
+  : { transport: { target: 'pino-pretty' } }
 
-const TOPICS = [
-  'coding best practices',
-  'developer productivity tips',
-  'software engineering insights',
-  'programming wisdom',
-  'tech industry trends'
-] as const
+const log = pino(logOptions)
 
-function getRandomTopic(): string {
-  return TOPICS[Math.floor(Math.random() * TOPICS.length)]!
+// This would be replaced with actual database calls in production
+const topics = new Map<string, { id: string; name: string; isActive: boolean }>()
+const pendingPosts = new Map<string, { id: string; content: string; topic?: string; timestamp: Date; status: string }>()
+
+async function generatePost(topic?: string): Promise<string> {
+  const subject = topic || 'a useful dev tip'
+
+  // This would call the actual AI service
+  const fallback = `Tip: ${subject}. Keep it short, specific, and actionable. Focus on one insight, avoid fluff.`
+  return fallback.length > 280 ? fallback.slice(0, 279) : fallback
 }
 
-async function postToX(topic?: string) {
-  const selectedTopic: string = topic ?? getRandomTopic()
-  const command = `npm run dev -- "${selectedTopic}"`
+async function createPendingPost(topic?: string) {
+  const content = await generatePost(topic)
+  const postId = Date.now().toString()
   
-  try {
-    log.info({ topic: selectedTopic }, 'Posting to X...')
-    const { stdout, stderr } = await execAsync(command, { cwd: process.cwd() })
-    
-    if (stdout) log.info(stdout)
-    if (stderr) log.warn(stderr)
-    
-    log.info('Post completed successfully')
-  } catch (error) {
-    log.error({ error }, 'Failed to post to X')
+  const post: { id: string; content: string; topic?: string; timestamp: Date; status: string } = {
+    id: postId,
+    content,
+    timestamp: new Date(),
+    status: 'pending'
   }
+  
+  if (topic) {
+    post.topic = topic
+  }
+  
+  pendingPosts.set(postId, post)
+  log.info({ postId, topic, content }, 'Created pending post')
+  return post
 }
 
 async function schedulePosts(intervalHours: number = 24) {
@@ -40,12 +47,12 @@ async function schedulePosts(intervalHours: number = 24) {
   
   log.info({ intervalHours }, 'Starting scheduled posts')
   
-  // Post immediately
-  await postToX()
+  // Generate initial post
+  await createPendingPost()
   
   // Then schedule regular posts
   setInterval(async () => {
-    await postToX()
+    await createPendingPost()
   }, intervalMs)
 }
 
@@ -61,7 +68,7 @@ if (process.argv.includes('--schedule')) {
   const topic = postNowIndex !== -1 && process.argv[postNowIndex + 1] 
     ? process.argv[postNowIndex + 1] 
     : undefined
-  await postToX(topic)
+  createPendingPost(topic)
 } else {
   log.info(`
 Usage:
