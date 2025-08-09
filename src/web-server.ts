@@ -90,6 +90,44 @@ const openRouterClient = env.OPENROUTER_API_KEY
     })
   : null
 
+// DuckDuckGo search function for RAG
+async function searchDuckDuckGo(query: string): Promise<string> {
+  try {
+    // DuckDuckGo Instant Answer API
+    const searchUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`
+    
+    const response = await fetch(searchUrl)
+    const data = await response.json()
+    
+    let searchResults = ''
+    
+    // Extract relevant information
+    if (data.Abstract) {
+      searchResults += `Abstract: ${data.Abstract}\n`
+    }
+    
+    if (data.RelatedTopics && data.RelatedTopics.length > 0) {
+      const topics = data.RelatedTopics.slice(0, 3)
+        .map((topic: any) => topic.Text || topic.FirstURL)
+        .filter(Boolean)
+        .join('\n')
+      if (topics) {
+        searchResults += `Related: ${topics}\n`
+      }
+    }
+    
+    // If no abstract, try to get some context from the query
+    if (!searchResults.trim()) {
+      searchResults = `Searching for current information about: ${query}`
+    }
+    
+    return searchResults.trim()
+  } catch (error) {
+    log.warn({ error, query }, 'DuckDuckGo search failed, falling back to AI-only generation')
+    return ''
+  }
+}
+
 // Email transporter
 const emailTransporter = env.EMAIL_USER && env.EMAIL_PASS
   ? nodemailer.createTransport({
@@ -361,7 +399,26 @@ async function generatePost(topic?: string): Promise<string> {
     return fallback.length > 280 ? fallback.slice(0, 279) : fallback
   }
 
-  const prompt = `Write a concise X post (<=260 chars) about ${subject}. No emojis. Minimal or no hashtags. Provide one actionable insight.`
+  // RAG: First search for current information
+  let searchContext = ''
+  if (subject && subject !== 'a useful dev tip') {
+    log.info({ topic: subject }, 'Searching DuckDuckGo for current information')
+    searchContext = await searchDuckDuckGo(subject)
+  }
+
+  // Create enhanced prompt with search results
+  let prompt: string
+  if (searchContext) {
+    prompt = `Based on this current information: ${searchContext}
+
+Write a concise X post (<=260 chars) about ${subject}. 
+- Use the provided information to ensure accuracy
+- No emojis, minimal hashtags
+- Provide one actionable insight
+- Make it engaging and current`
+  } else {
+    prompt = `Write a concise X post (<=260 chars) about ${subject}. No emojis. Minimal or no hashtags. Provide one actionable insight.`
+  }
 
   const response = await openRouterClient.chat.completions.create({
     model: 'openrouter/auto',
@@ -651,7 +708,10 @@ app.get('/', (req: Request, res: Response) => {
             </div>
             <div class="button-group">
                 <button class="btn-primary" onclick="addTopic()">Add Topic</button>
-                <button class="btn-warning" onclick="generatePostFromTopics()">🤖 Generate Post from Topics</button>
+                <button class="btn-warning" onclick="generatePostFromTopics()">🤖 Generate Post with RAG</button>
+            </div>
+            <div class="rag-info" style="margin-top: 10px; font-size: 12px; color: #666; background: #f0f8ff; padding: 8px; border-radius: 4px;">
+                🔍 RAG: Will search DuckDuckGo for current information before generating content
             </div>
             
             <div class="topic-list" id="topicList"></div>
@@ -1172,6 +1232,11 @@ app.get('/api/debug/data', async (req: Request, res: Response) => {
         topics: TOPICS_FILE,
         posts: POSTS_FILE,
         schedule: SCHEDULE_FILE
+      },
+      rag: {
+        enabled: true,
+        provider: 'DuckDuckGo',
+        description: 'Web search integration for fact-checked content generation'
       }
     }
     res.json({ success: true, data })
