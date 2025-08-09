@@ -6,7 +6,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx src/index.ts",
     "build": "tsc -p .",
-    "start": "node dist/index.js",
+    "start": "node dist/web-server.js",
     "scheduler": "tsx src/scheduler.ts",
     "web": "tsx src/web-server.ts",
     "vercel-build": "tsc -p ."
@@ -14,7 +14,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "X Post Manager with AI integration and approval workflow",
   "type": "module",
   "dependencies": {
     "@types/express": "^4.17.21",

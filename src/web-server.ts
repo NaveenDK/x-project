@@ -85,7 +85,7 @@ async function sendEmailNotification(post: PendingPost) {
           </div>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="http://localhost:3031" style="background: #1da1f2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+            <a href="${process.env.RENDER_EXTERNAL_URL || 'http://localhost:3031'}" style="background: #1da1f2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">
               🎯 Review & Approve Post
             </a>
           </div>
