@@ -59,7 +59,7 @@ OPENROUTER_API_KEY=your_openrouter_key
 - **Manual**: Go to Actions → "Daily X Post" → "Run workflow"
 
 **Files:**
-- `.github/workflows/daily-post.yml`
+- `.github/workflows/main.yml`
 
 ### 2. Local Cron Job
 

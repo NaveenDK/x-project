@@ -93,6 +93,6 @@ Once working:
 
 ## Files Created
 
-- `.github/workflows/daily-post.yml` - GitHub Actions workflow
+- `.github/workflows/main.yml` - GitHub Actions workflow
 - `GITHUB_ACTIONS_SETUP.md` - This setup guide
 - `README.md` - Complete documentation 
