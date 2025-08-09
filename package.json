@@ -1,0 +1,30 @@
+{
+  "name": "x-project",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p .",
+    "start": "node dist/index.js",
+    "scheduler": "tsx src/scheduler.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^17.2.1",
+    "openai": "^5.12.2",
+    "pino": "^9.8.0",
+    "pino-pretty": "^13.1.1",
+    "twitter-api-v2": "^1.24.0",
+    "zod": "^4.0.16"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  }
+}
