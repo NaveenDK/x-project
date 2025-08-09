@@ -4,7 +4,11 @@ import { z } from 'zod'
 import OpenAI from 'openai'
 import { TwitterApi } from 'twitter-api-v2'
 
-const log = pino({ transport: { target: 'pino-pretty' } })
+const logOptions = process.env.NODE_ENV === 'production' 
+  ? {} 
+  : { transport: { target: 'pino-pretty' } }
+
+const log = pino(logOptions)
 
 const EnvSchema = z.object({
   OPENROUTER_API_KEY: z.string().optional(),

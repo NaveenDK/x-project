@@ -33,7 +33,5 @@ jobs:
         
     - name: Post to X
       run: npm run dev -- "daily developer tip"
-      
-    - name: Post raw message (alternative)
-      run: npm run dev -- --raw "Automated daily post from GitHub Actions! 🚀"
-      continue-on-error: true 
+      env:
+        NODE_ENV: production 
