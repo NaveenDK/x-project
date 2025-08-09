@@ -304,17 +304,17 @@ async function sendEmailNotification(post: PendingPost) {
           
           <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <h3 style="margin-top: 0;">Generated Content:</h3>
-            <p style="font-size: 16px; line-height: 1.5; margin-bottom: 15px;">${post.content}</p>
+            <p style="font-size: 16px; line-height: 1.5; margin-bottom: 15px;">\${post.content}</p>
             
             <div style="font-size: 14px; color: #666;">
-              <strong>Topic:</strong> ${post.topic || 'No topic specified'}<br>
-              <strong>Generated:</strong> ${new Date(post.timestamp).toLocaleString()}<br>
+              <strong>Topic:</strong> \${post.topic || 'No topic specified'}<br>
+              <strong>Generated:</strong> \${new Date(post.timestamp).toLocaleString()}<br>
               <strong>Status:</strong> <span style="background: #fff3cd; color: #856404; padding: 4px 8px; border-radius: 4px;">Pending Approval</span>
             </div>
           </div>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.RENDER_EXTERNAL_URL || 'http://localhost:3031'}" style="background: #1da1f2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+            <a href="\${process.env.RENDER_EXTERNAL_URL || 'http://localhost:3031'}" style="background: #1da1f2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">
               🎯 Review & Approve Post
             </a>
           </div>
@@ -762,7 +762,7 @@ app.get('/', (req: Request, res: Response) => {
             </div>
             <div class="button-group">
                 <button class="btn-primary" onclick="addTopic()">Add Topic</button>
-                <button class="btn-warning" onclick="generatePostFromTopics()">🤖 Generate Post with RAG</button>
+                <button class="btn-warning" onclick="generatePostFromTopics()">Generate Post with RAG</button>
             </div>
             <div class="rag-info" style="margin-top: 10px; font-size: 12px; color: #666; background: #f0f8ff; padding: 8px; border-radius: 4px;">
                 🔍 RAG: Will search DuckDuckGo for current information before generating content
@@ -798,6 +798,9 @@ app.get('/', (req: Request, res: Response) => {
         loadRecentPosts();
         loadSchedule();
         
+        // Update button text after topics load
+        setTimeout(updateGenerateButton, 100);
+        
         async function addTopic() {
             const topicName = document.getElementById('newTopic').value.trim();
             if (!topicName) {
@@ -826,7 +829,7 @@ app.get('/', (req: Request, res: Response) => {
         
         async function toggleTopic(topicId) {
             try {
-                const response = await fetch(\`/api/topics/\${topicId}/toggle\`, {
+                const response = await fetch('/api/topics/' + topicId + '/toggle', {
                     method: 'POST'
                 });
                 
@@ -845,7 +848,7 @@ app.get('/', (req: Request, res: Response) => {
             if (!confirm('Are you sure you want to delete this topic?')) return;
             
             try {
-                const response = await fetch(\`/api/topics/\${topicId}\`, {
+                const response = await fetch('/api/topics/' + topicId, {
                     method: 'DELETE'
                 });
                 
@@ -862,17 +865,17 @@ app.get('/', (req: Request, res: Response) => {
         
         async function approvePost(postId) {
             try {
-                const response = await fetch(\`/api/posts/\${postId}/approve\`, {
+                const response = await fetch('/api/posts/' + postId + '/approve', {
                     method: 'POST'
                 });
                 
                 const data = await response.json();
                 if (data.success) {
-                    alert('✅ Post approved and sent to X!');
+                    alert('Post approved and sent to X!');
                     loadPendingPosts();
                     loadRecentPosts();
                 } else {
-                    alert('❌ Error: ' + data.error);
+                    alert('Error: ' + data.error);
                 }
             } catch (error) {
                 alert('Error approving post: ' + error.message);
@@ -883,7 +886,7 @@ app.get('/', (req: Request, res: Response) => {
             if (!confirm('Are you sure you want to reject this post?')) return;
             
             try {
-                const response = await fetch(\`/api/posts/\${postId}/reject\`, {
+                const response = await fetch('/api/posts/' + postId + '/reject', {
                     method: 'POST'
                 });
                 
@@ -932,18 +935,29 @@ app.get('/', (req: Request, res: Response) => {
                 data.topics.forEach(topic => {
                     const topicElement = document.createElement('div');
                     topicElement.className = \`topic-item \${topic.isActive ? 'active' : 'inactive'}\`;
+                    
+                    const toggleBtn = document.createElement('button');
+                    toggleBtn.className = 'btn-secondary';
+                    toggleBtn.style.cssText = 'padding: 5px 10px; font-size: 12px;';
+                    toggleBtn.textContent = topic.isActive ? 'Disable' : 'Enable';
+                    toggleBtn.addEventListener('click', () => toggleTopic(topic.id));
+                    
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.className = 'btn-danger';
+                    deleteBtn.style.cssText = 'padding: 5px 10px; font-size: 12px;';
+                    deleteBtn.textContent = 'Delete';
+                    deleteBtn.addEventListener('click', () => deleteTopic(topic.id));
+                    
                     topicElement.innerHTML = \`
                         <div class="topic-name">\${topic.name}</div>
                         <div class="topic-date">Added: \${new Date(topic.createdAt).toLocaleDateString()}</div>
-                        <div class="topic-actions">
-                            <button onclick="toggleTopic('\${topic.id}')" class="btn-secondary" style="padding: 5px 10px; font-size: 12px;">
-                                \${topic.isActive ? 'Disable' : 'Enable'}
-                            </button>
-                            <button onclick="deleteTopic('\${topic.id}')" class="btn-danger" style="padding: 5px 10px; font-size: 12px;">
-                                Delete
-                            </button>
-                        </div>
+                        <div class="topic-actions"></div>
                     \`;
+                    
+                    const actionsDiv = topicElement.querySelector('.topic-actions');
+                    actionsDiv.appendChild(toggleBtn);
+                    actionsDiv.appendChild(deleteBtn);
+                    
                     container.appendChild(topicElement);
                 });
             } catch (error) {
@@ -967,6 +981,17 @@ app.get('/', (req: Request, res: Response) => {
                 data.posts.forEach(post => {
                     const postElement = document.createElement('div');
                     postElement.className = 'post-item';
+                    
+                    const approveBtn = document.createElement('button');
+                    approveBtn.className = 'btn-success';
+                    approveBtn.textContent = '✅ Approve & Post';
+                    approveBtn.addEventListener('click', () => approvePost(post.id));
+                    
+                    const rejectBtn = document.createElement('button');
+                    rejectBtn.className = 'btn-danger';
+                    rejectBtn.textContent = '❌ Reject';
+                    rejectBtn.addEventListener('click', () => rejectPost(post.id));
+                    
                     postElement.innerHTML = \`
                         <div class="post-content">\${post.content}</div>
                         <div class="post-meta">
@@ -974,11 +999,13 @@ app.get('/', (req: Request, res: Response) => {
                             <span class="status \${post.status}">\${post.status}</span>
                             \${post.topic ? ' • Topic: ' + post.topic : ''}
                         </div>
-                        <div class="button-group">
-                            <button class="btn-success" onclick="approvePost('\${post.id}')">✅ Approve & Post</button>
-                            <button class="btn-danger" onclick="rejectPost('\${post.id}')">❌ Reject</button>
-                        </div>
+                        <div class="button-group"></div>
                     \`;
+                    
+                    const buttonGroup = postElement.querySelector('.button-group');
+                    buttonGroup.appendChild(approveBtn);
+                    buttonGroup.appendChild(rejectBtn);
+                    
                     container.appendChild(postElement);
                 });
             } catch (error) {
@@ -1026,21 +1053,50 @@ app.get('/', (req: Request, res: Response) => {
             }
         }
         
+        // Track last used topic to avoid repetition
+        let lastUsedTopic = '';
+        
         async function generatePostFromTopics() {
             try {
                 const response = await fetch('/api/generate-post', {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ lastUsedTopic })
                 });
                 
                 const data = await response.json();
                 if (data.success) {
-                    alert('✅ Post generated! Check "Pending Posts" section.');
+                    // Update last used topic
+                    lastUsedTopic = data.selectedTopic;
+                    
+                    // Show which topic was selected
+                    const message = 'Post generated from topic: "' + data.selectedTopic + '"\\n\\nCheck "Pending Posts" section.';
+                    alert(message);
+                    
+                    // Update the button to show topic diversity
+                    updateGenerateButton();
+                    
                     loadPendingPosts();
                 } else {
                     alert('Error: ' + data.error);
                 }
             } catch (error) {
                 alert('Error generating post: ' + error.message);
+            }
+        }
+        
+        // Update button text to show topic diversity
+        function updateGenerateButton() {
+            const button = document.querySelector('button[onclick="generatePostFromTopics()"]');
+            if (button) {
+                const topics = Array.from(document.querySelectorAll('.topic-item')).length;
+                if (topics > 1) {
+                    button.innerHTML = 'Generate Post with RAG (' + topics + ' topics available)';
+                } else {
+                    button.innerHTML = 'Generate Post with RAG';
+                }
             }
         }
         
@@ -1060,6 +1116,8 @@ app.get('/', (req: Request, res: Response) => {
                 alert('Error: ' + error.message);
             }
         }
+        
+
     </script>
 </body>
 </html>`
@@ -1247,16 +1305,49 @@ app.post('/api/generate-post', async (req: Request, res: Response) => {
       return res.json({ success: false, error: 'No active topics found. Please add and enable some topics first.' })
     }
     
-    // Pick a random active topic
-    const randomTopic = activeTopics[Math.floor(Math.random() * activeTopics.length)]!
-    const content = await generatePost(randomTopic.name)
+    // Enhanced topic selection to avoid repetition
+    let selectedTopic: Topic
+    
+    if (activeTopics.length === 1) {
+      // Only one topic available
+      selectedTopic = activeTopics[0]!
+    } else {
+      // Multiple topics - use smart selection to avoid repetition
+      const { lastUsedTopic } = req.body || {}
+      
+      // Filter out the last used topic if possible
+      let availableTopics = activeTopics
+      if (lastUsedTopic && activeTopics.length > 1) {
+        availableTopics = activeTopics.filter(topic => topic.name !== lastUsedTopic)
+      }
+      
+      // Pick from available topics with weighted randomness
+      const weights = availableTopics.map((_, index) => 1 / (index + 1)) // Favor topics not recently used
+      const totalWeight = weights.reduce((sum, weight) => sum + weight, 0)
+      let random = Math.random() * totalWeight
+      
+      for (let i = 0; i < availableTopics.length; i++) {
+        random -= weights[i]!
+        if (random <= 0) {
+          selectedTopic = availableTopics[i]!
+          break
+        }
+      }
+      
+      // Fallback to random selection
+      if (!selectedTopic!) {
+        selectedTopic = availableTopics[Math.floor(Math.random() * availableTopics.length)]!
+      }
+    }
+    
+    const content = await generatePost(selectedTopic!.name)
     
     // Create pending post
     const postId = Date.now().toString()
     const post: PendingPost = {
       id: postId,
       content,
-      topic: randomTopic.name,
+      topic: selectedTopic!.name,
       timestamp: new Date(),
       status: 'pending'
     }
@@ -1264,12 +1355,17 @@ app.post('/api/generate-post', async (req: Request, res: Response) => {
     pendingPosts.set(postId, post)
     await savePostsToFile() // Save to file
     
-    log.info({ postId, topic: randomTopic.name, content }, 'Generated post from topic')
+    log.info({ postId, topic: selectedTopic!.name, content, availableTopics: activeTopics.length }, 'Generated post from topic with smart selection')
     
     // Send email notification
     await sendEmailNotification(post)
     
-    res.json({ success: true, post })
+    res.json({ 
+      success: true, 
+      post,
+      selectedTopic: selectedTopic!.name,
+      availableTopics: activeTopics.length
+    })
   } catch (error) {
     log.error({ error }, 'Error generating post')
     res.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' })
