@@ -304,17 +304,17 @@ async function sendEmailNotification(post: PendingPost) {
           
           <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <h3 style="margin-top: 0;">Generated Content:</h3>
-            <p style="font-size: 16px; line-height: 1.5; margin-bottom: 15px;">\${post.content}</p>
+            <p style="font-size: 16px; line-height: 1.5; margin-bottom: 15px;">${post.content}</p>
             
             <div style="font-size: 14px; color: #666;">
-              <strong>Topic:</strong> \${post.topic || 'No topic specified'}<br>
-              <strong>Generated:</strong> \${new Date(post.timestamp).toLocaleString()}<br>
+              <strong>Topic:</strong> ${post.topic || 'No topic specified'}<br>
+              <strong>Generated:</strong> ${new Date(post.timestamp).toLocaleString()}<br>
               <strong>Status:</strong> <span style="background: #fff3cd; color: #856404; padding: 4px 8px; border-radius: 4px;">Pending Approval</span>
             </div>
           </div>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="\${process.env.RENDER_EXTERNAL_URL || 'http://localhost:3031'}" style="background: #1da1f2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+            <a href="${process.env.RENDER_EXTERNAL_URL || 'http://localhost:3031'}" style="background: #1da1f2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">
               🎯 Review & Approve Post
             </a>
           </div>
