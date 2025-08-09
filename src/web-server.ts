@@ -1,17 +1,13 @@
 import 'dotenv/config'
 import express from 'express'
 import type { Request, Response } from 'express'
-import { z } from 'zod'
 import pino from 'pino'
+import fs from 'fs/promises'
+import path from 'path'
+import { z } from 'zod'
 import { TwitterApi } from 'twitter-api-v2'
 import OpenAI from 'openai'
 import nodemailer from 'nodemailer'
-
-const logOptions = process.env.NODE_ENV === 'production' 
-  ? {} 
-  : { transport: { target: 'pino-pretty' } }
-
-const log = pino(logOptions)
 
 const app = express()
 const PORT = process.env.PORT || 3031
@@ -19,6 +15,13 @@ const PORT = process.env.PORT || 3031
 // Middleware
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+
+// Logging
+const logOptions = process.env.NODE_ENV === 'production' 
+  ? {} 
+  : { transport: { target: 'pino-pretty' } }
+
+const log = pino(logOptions)
 
 // Environment validation
 const EnvSchema = z.object({
@@ -34,6 +37,46 @@ const EnvSchema = z.object({
 })
 
 const env = EnvSchema.parse(process.env)
+
+// Data storage (in production, use a database)
+interface Topic {
+  id: string
+  name: string
+  createdAt: Date
+  isActive: boolean
+}
+
+interface PendingPost {
+  id: string
+  content: string
+  topic?: string
+  timestamp: Date
+  status: 'pending' | 'approved' | 'rejected'
+  scheduledFor?: Date
+}
+
+interface Schedule {
+  frequency: 'daily' | 'weekly' | 'monthly'
+  time: string // HH:MM format
+  timezone: string
+  isActive: boolean
+}
+
+// File storage paths
+const DATA_DIR = path.join(process.cwd(), 'data')
+const TOPICS_FILE = path.join(DATA_DIR, 'topics.json')
+const POSTS_FILE = path.join(DATA_DIR, 'posts.json')
+const SCHEDULE_FILE = path.join(DATA_DIR, 'schedule.json')
+
+// In-memory storage (will be loaded from files)
+const topics = new Map<string, Topic>()
+const pendingPosts = new Map<string, PendingPost>()
+const schedule: Schedule = {
+  frequency: 'daily',
+  time: '09:00',
+  timezone: 'UTC',
+  isActive: true
+}
 
 // Initialize clients
 const openRouterClient = env.OPENROUTER_API_KEY
@@ -57,6 +100,100 @@ const emailTransporter = env.EMAIL_USER && env.EMAIL_PASS
       },
     })
   : null
+
+// File storage functions
+async function ensureDataDir() {
+  try {
+    await fs.access(DATA_DIR)
+  } catch {
+    await fs.mkdir(DATA_DIR, { recursive: true })
+    log.info('Created data directory')
+  }
+}
+
+async function loadTopicsFromFile() {
+  try {
+    const data = await fs.readFile(TOPICS_FILE, 'utf-8')
+    const topicsArray = JSON.parse(data)
+    topics.clear()
+    topicsArray.forEach((topic: Topic) => {
+      // Convert string dates back to Date objects
+      topic.createdAt = new Date(topic.createdAt)
+      topics.set(topic.id, topic)
+    })
+    log.info({ count: topics.size }, 'Topics loaded from file')
+  } catch (error) {
+    log.info('No topics file found, starting with empty topics')
+  }
+}
+
+async function saveTopicsToFile() {
+  try {
+    const topicsArray = Array.from(topics.values())
+    await fs.writeFile(TOPICS_FILE, JSON.stringify(topicsArray, null, 2))
+    log.info({ count: topicsArray.length }, 'Topics saved to file')
+  } catch (error) {
+    log.error({ error }, 'Error saving topics to file')
+  }
+}
+
+async function loadPostsFromFile() {
+  try {
+    const data = await fs.readFile(POSTS_FILE, 'utf-8')
+    const postsArray = JSON.parse(data)
+    pendingPosts.clear()
+    postsArray.forEach((post: PendingPost) => {
+      // Convert string dates back to Date objects
+      post.timestamp = new Date(post.timestamp)
+      if (post.scheduledFor) {
+        post.scheduledFor = new Date(post.scheduledFor)
+      }
+      pendingPosts.set(post.id, post)
+    })
+    log.info({ count: pendingPosts.size }, 'Posts loaded from file')
+  } catch (error) {
+    log.info('No posts file found, starting with empty posts')
+  }
+}
+
+async function savePostsToFile() {
+  try {
+    const postsArray = Array.from(pendingPosts.values())
+    await fs.writeFile(POSTS_FILE, JSON.stringify(postsArray, null, 2))
+    log.info({ count: postsArray.length }, 'Posts saved to file')
+  } catch (error) {
+    log.error({ error }, 'Error saving posts to file')
+  }
+}
+
+async function loadScheduleFromFile() {
+  try {
+    const data = await fs.readFile(SCHEDULE_FILE, 'utf-8')
+    const savedSchedule = JSON.parse(data)
+    Object.assign(schedule, savedSchedule)
+    log.info({ schedule }, 'Schedule loaded from file')
+  } catch (error) {
+    log.info('No schedule file found, using default schedule')
+  }
+}
+
+async function saveScheduleToFile() {
+  try {
+    await fs.writeFile(SCHEDULE_FILE, JSON.stringify(schedule, null, 2))
+    log.info({ schedule }, 'Schedule saved to file')
+  } catch (error) {
+    log.error({ error }, 'Error saving schedule to file')
+  }
+}
+
+// Initialize data from files
+async function initializeData() {
+  await ensureDataDir()
+  await loadTopicsFromFile()
+  await loadPostsFromFile()
+  await loadScheduleFromFile()
+  startScheduler()
+}
 
 async function sendEmailNotification(post: PendingPost) {
   if (!emailTransporter || !env.EMAIL_TO) {
@@ -103,58 +240,6 @@ async function sendEmailNotification(post: PendingPost) {
   } catch (error) {
     log.error({ error, postId: post.id }, 'Failed to send email notification')
   }
-}
-
-function createTwitterClient() {
-  const allHaveValues = [
-    env.TWITTER_APP_KEY,
-    env.TWITTER_APP_SECRET,
-    env.TWITTER_ACCESS_TOKEN,
-    env.TWITTER_ACCESS_SECRET,
-  ].every(Boolean)
-
-  if (!allHaveValues) return null
-
-  return new TwitterApi({
-    appKey: env.TWITTER_APP_KEY as string,
-    appSecret: env.TWITTER_APP_SECRET as string,
-    accessToken: env.TWITTER_ACCESS_TOKEN as string,
-    accessSecret: env.TWITTER_ACCESS_SECRET as string,
-  })
-}
-
-// Data storage (in production, use a database)
-interface Topic {
-  id: string
-  name: string
-  createdAt: Date
-  isActive: boolean
-}
-
-interface PendingPost {
-  id: string
-  content: string
-  topic?: string
-  timestamp: Date
-  status: 'pending' | 'approved' | 'rejected'
-  scheduledFor?: Date
-}
-
-interface Schedule {
-  frequency: 'daily' | 'weekly' | 'monthly'
-  time: string // HH:MM format
-  timezone: string
-  isActive: boolean
-}
-
-// In-memory storage (replace with database in production)
-const topics = new Map<string, Topic>()
-const pendingPosts = new Map<string, PendingPost>()
-const schedule: Schedule = {
-  frequency: 'daily',
-  time: '09:00',
-  timezone: 'UTC',
-  isActive: true
 }
 
 // Scheduling functionality
@@ -303,6 +388,24 @@ async function postToX(content: string): Promise<{ success: boolean; id?: string
     log.error({ error }, 'Failed to post to X')
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
+}
+
+function createTwitterClient() {
+  const allHaveValues = [
+    env.TWITTER_APP_KEY,
+    env.TWITTER_APP_SECRET,
+    env.TWITTER_ACCESS_TOKEN,
+    env.TWITTER_ACCESS_SECRET,
+  ].every(Boolean)
+
+  if (!allHaveValues) return null
+
+  return new TwitterApi({
+    appKey: env.TWITTER_APP_KEY as string,
+    appSecret: env.TWITTER_APP_SECRET as string,
+    accessToken: env.TWITTER_ACCESS_TOKEN as string,
+    accessSecret: env.TWITTER_ACCESS_SECRET as string,
+  })
 }
 
 // Routes
@@ -565,6 +668,13 @@ app.get('/', (req: Request, res: Response) => {
             <h2>📊 Recent Posts</h2>
             <div id="recentPosts"></div>
         </div>
+        
+        <!-- Debug Data (Development Only) -->
+        <div class="section">
+            <h2>🔧 Debug Data</h2>
+            <button class="btn-secondary" onclick="showDebugData()">Show Stored Data</button>
+            <div id="debugData" style="display: none; margin-top: 20px; background: #f8f9fa; padding: 20px; border-radius: 8px; font-family: monospace; font-size: 12px; white-space: pre-wrap;"></div>
+        </div>
     </div>
 
     <script>
@@ -819,6 +929,23 @@ app.get('/', (req: Request, res: Response) => {
                 alert('Error generating post: ' + error.message);
             }
         }
+        
+        async function showDebugData() {
+            try {
+                const response = await fetch('/api/debug/data');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const debugDiv = document.getElementById('debugData');
+                    debugDiv.style.display = 'block';
+                    debugDiv.textContent = JSON.stringify(data.data, null, 2);
+                } else {
+                    alert('Error loading debug data: ' + data.error);
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
     </script>
 </body>
 </html>`
@@ -843,6 +970,7 @@ app.post('/api/topics', async (req: Request, res: Response) => {
     }
     
     topics.set(topicId, topic)
+    await saveTopicsToFile() // Save to file
     log.info({ topicId, name }, 'Topic added')
     res.json({ success: true, topic })
   } catch (error) {
@@ -856,7 +984,7 @@ app.get('/api/topics', (req: Request, res: Response) => {
   res.json({ topics: topicsList })
 })
 
-app.post('/api/topics/:id/toggle', (req: Request, res: Response) => {
+app.post('/api/topics/:id/toggle', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
     if (!id) {
@@ -870,6 +998,7 @@ app.post('/api/topics/:id/toggle', (req: Request, res: Response) => {
     
     topic.isActive = !topic.isActive
     topics.set(id, topic)
+    await saveTopicsToFile() // Save to file
     
     log.info({ topicId: id, isActive: topic.isActive }, 'Topic toggled')
     res.json({ success: true, topic })
@@ -879,7 +1008,7 @@ app.post('/api/topics/:id/toggle', (req: Request, res: Response) => {
   }
 })
 
-app.delete('/api/topics/:id', (req: Request, res: Response) => {
+app.delete('/api/topics/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
     if (!id) {
@@ -891,6 +1020,7 @@ app.delete('/api/topics/:id', (req: Request, res: Response) => {
       return res.json({ success: false, error: 'Topic not found' })
     }
     
+    await saveTopicsToFile() // Save to file
     log.info({ topicId: id }, 'Topic deleted')
     res.json({ success: true })
   } catch (error) {
@@ -899,7 +1029,7 @@ app.delete('/api/topics/:id', (req: Request, res: Response) => {
   }
 })
 
-app.post('/api/schedule', (req: Request, res: Response) => {
+app.post('/api/schedule', async (req: Request, res: Response) => {
   try {
     const { frequency, time, timezone } = req.body
     
@@ -910,6 +1040,7 @@ app.post('/api/schedule', (req: Request, res: Response) => {
     schedule.frequency = frequency as 'daily' | 'weekly' | 'monthly'
     schedule.time = time
     schedule.timezone = timezone
+    await saveScheduleToFile() // Save to file
     
     log.info({ frequency, time, timezone }, 'Schedule updated')
     
@@ -956,6 +1087,7 @@ app.post('/api/posts/:id/approve', async (req: Request, res: Response) => {
     if (result.success) {
       post.status = 'approved'
       pendingPosts.set(id, post)
+      await savePostsToFile() // Save to file
       
       log.info({ postId: id, content: post.content }, 'Post approved and sent to X')
       res.json({ success: true, id: result.id })
@@ -968,7 +1100,7 @@ app.post('/api/posts/:id/approve', async (req: Request, res: Response) => {
   }
 })
 
-app.post('/api/posts/:id/reject', (req: Request, res: Response) => {
+app.post('/api/posts/:id/reject', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
     if (!id) {
@@ -982,6 +1114,7 @@ app.post('/api/posts/:id/reject', (req: Request, res: Response) => {
     
     post.status = 'rejected'
     pendingPosts.set(id, post)
+    await savePostsToFile() // Save to file
     
     log.info({ postId: id }, 'Post rejected')
     res.json({ success: true })
@@ -1015,6 +1148,7 @@ app.post('/api/generate-post', async (req: Request, res: Response) => {
     }
     
     pendingPosts.set(postId, post)
+    await savePostsToFile() // Save to file
     
     log.info({ postId, topic: randomTopic.name, content }, 'Generated post from topic')
     
@@ -1028,8 +1162,27 @@ app.post('/api/generate-post', async (req: Request, res: Response) => {
   }
 })
 
+app.get('/api/debug/data', async (req: Request, res: Response) => {
+  try {
+    const data = {
+      topics: Array.from(topics.values()),
+      schedule,
+      posts: Array.from(pendingPosts.values()),
+      filePaths: {
+        topics: TOPICS_FILE,
+        posts: POSTS_FILE,
+        schedule: SCHEDULE_FILE
+      }
+    }
+    res.json({ success: true, data })
+  } catch (error) {
+    log.error({ error }, 'Error getting debug data')
+    res.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' })
+  }
+})
+
 // Start server
 app.listen(PORT, () => {
   log.info({ port: PORT }, 'Web server started')
-  startScheduler() // Start scheduler on server start
+  initializeData() // Initialize data on server start
 }) 
